@@ -67,7 +67,7 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#f1f5f9;color:var(--
 .setting-sub{font-size:11px;color:var(--text-muted)}
 input[type=number]{width:80px;padding:5px 8px;border:1px solid var(--gray-border);border-radius:var(--radius);font-size:13px;text-align:center}
 input[type=text],input[type=time],select{padding:6px 10px;border:1px solid var(--gray-border);border-radius:var(--radius);font-size:13px;width:100%}
-input[type=file]{display:none}
+input[type=file]{position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0,0,0,0);border:0}
 /* ROUTE CARDS */
 .routes-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-top:16px}
 .route-card{background:var(--white);border:1px solid var(--gray-border);border-radius:var(--radius-lg);overflow:hidden;cursor:pointer;transition:all .2s;box-shadow:var(--shadow)}
@@ -171,12 +171,14 @@ input[type=file]{display:none}
   </div>
 
   <div class="card" style="margin-bottom:16px">
-    <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()" ondragover="handleDrag(event,true)" ondragleave="handleDrag(event,false)" ondrop="handleDrop(event)">
-      <div class="upload-icon">📂</div>
-      <div class="upload-title">Drop your orders CSV here or click to browse</div>
-      <div class="upload-sub">Expected columns: <strong>outlet name</strong>, <strong>weight</strong> (kg)</div>
-    </div>
-    <input type="file" id="file-input" accept=".csv" onchange="handleFile(event)"/>
+    <label for="file-input" style="display:block;cursor:pointer">
+      <div class="upload-zone" id="upload-zone" ondragover="handleDrag(event,true)" ondragleave="handleDrag(event,false)" ondrop="handleDrop(event)">
+        <div class="upload-icon">📂</div>
+        <div class="upload-title">Drop your orders CSV here or click to browse</div>
+        <div class="upload-sub">Expected columns: <strong>outlet name</strong>, <strong>weight</strong> (kg)</div>
+      </div>
+    </label>
+    <input type="file" id="file-input" accept=".csv,.CSV" onchange="handleFile(event)"/>
   </div>
 
   <div id="upload-result" style="display:none">
@@ -252,10 +254,10 @@ input[type=file]{display:none}
       <table class="ops-table" id="ops-table">
         <thead>
           <tr>
-            <th>Route</th><th>Vehicle Type</th><th>Vehicle No.</th>
+            <th>Route</th><th>Planned Vehicle</th><th>Actual Vehicle Type</th><th>Vehicle No.</th>
             <th>Driver Name</th><th>Driver No.</th><th>Transport Partner</th>
             <th>Dispatch Time (Planned)</th><th>Actual Dispatch</th>
-            <th>Reporting Time (Return)</th>
+            <th>Reporting Time (Return)</th><th>Split? (2nd Vehicle No.)</th>
           </tr>
         </thead>
         <tbody id="ops-body"></tbody>
@@ -294,8 +296,16 @@ input[type=file]{display:none}
         <div style="display:flex;align-items:center;gap:6px"><input type="number" id="s-max-dist" value="150" min="50" max="300"> <span style="font-size:12px;color:var(--text-muted)">km</span></div>
       </div>
       <div class="setting-row">
-        <div><div class="setting-label">Max route duration</div></div>
+        <div><div class="setting-label">Standard shift duration</div><div class="setting-sub">Target shift length per driver</div></div>
         <div style="display:flex;align-items:center;gap:6px"><input type="number" id="s-max-hours" value="12" min="4" max="20"> <span style="font-size:12px;color:var(--text-muted)">hrs</span></div>
+      </div>
+      <div class="setting-row">
+        <div><div class="setting-label">Max overtime allowed</div><div class="setting-sub">Driver can work up to this if needed</div></div>
+        <div style="display:flex;align-items:center;gap:6px"><input type="number" id="s-max-overtime" value="14" min="4" max="20"> <span style="font-size:12px;color:var(--text-muted)">hrs</span></div>
+      </div>
+      <div class="setting-row">
+        <div><div class="setting-label">Min shift utilisation</div><div class="setting-sub">Don't finalise route if driver free before this</div></div>
+        <div style="display:flex;align-items:center;gap:6px"><input type="number" id="s-min-util" value="70" min="30" max="100"> <span style="font-size:12px;color:var(--text-muted)">%</span></div>
       </div>
       <div class="setting-row">
         <div><div class="setting-label">Outstation threshold</div><div class="setting-sub">Outlets beyond this are outstation</div></div>
@@ -306,6 +316,12 @@ input[type=file]{display:none}
       <div style="font-size:12px;padding:6px 0;border-bottom:1px solid var(--gray-border)"><strong>Delhi:</strong> 7:00 AM–11:00 AM &amp; 4:00 PM–9:00 PM</div>
       <div style="font-size:12px;padding:6px 0"><strong>Gurgaon:</strong> 8:00 AM–10:00 AM &amp; 5:00 PM–9:00 PM</div>
     </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text-muted)">APPLY SETTINGS</div>
+    <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Change any setting above and regenerate routes to apply. Previous routes will be replaced.</div>
+    <button class="btn btn-primary" onclick="regenerateRoutes()">↺ Re-generate Routes with Current Settings</button>
   </div>
 
   <div class="card" style="margin-top:16px">
@@ -384,16 +400,18 @@ function getZone(lat,lon){
   const dist=haversine(WH.lat,WH.lon,lat,lon);
   const s=getSettings();
   if(dist>s.outstationKm) return 'Outstation';
-  if(lon>77.25&&lat>28.5&&lat<28.75) return 'Noida';
-  if(lat<28.52&&lon>77.25) return 'Faridabad';
-  if(lat<28.55&&lon<77.15) return 'Gurgaon';
-  if(lat>28.6&&lat<28.75&&lon>77.05&&lon<77.3) return 'Delhi';
-  if(lat>28.55&&lat<28.75&&lon>77.0&&lon<77.25) return 'Delhi';
+  // Gurgaon: south-west of Delhi, lat 28.3-28.55, lon 76.85-77.1
+  if(lat>=28.3&&lat<=28.58&&lon>=76.85&&lon<=77.12) return 'Gurgaon';
+  // Noida/Greater Noida: east of Yamuna, lon > 77.28
+  if(lon>77.28&&lat>28.4&&lat<28.72) return 'Noida';
+  // Faridabad: south-east, lat < 28.45, lon > 77.2
+  if(lat<28.45&&lon>77.2) return 'Faridabad';
+  // Delhi: core city bounds
+  if(lat>=28.5&&lat<=28.88&&lon>=76.98&&lon<=77.35) return 'Delhi';
   return 'NCR';
 }
-function isDelhi(lat,lon){return getZone(lat,lon)==='Delhi';}
-function isGurgaon(lat,lon){return getZone(lat,lon)==='Gurgaon';}
 function isNoEntry(zone,arrivalMins){
+  // Returns true if vehicle CANNOT enter at this time
   if(zone==='Delhi'){
     const w1=arrivalMins>=7*60&&arrivalMins<=11*60;
     const w2=arrivalMins>=16*60&&arrivalMins<=21*60;
@@ -406,6 +424,24 @@ function isNoEntry(zone,arrivalMins){
   }
   return false;
 }
+function nextAllowedWindow(zone,fromMins){
+  // Returns the next allowed entry start time >= fromMins
+  if(zone==='Delhi'){
+    if(fromMins<=7*60) return 7*60;
+    if(fromMins<=11*60) return fromMins; // already in window
+    if(fromMins<=16*60) return 16*60;
+    if(fromMins<=21*60) return fromMins; // already in window
+    return 7*60+24*60; // next day (edge case)
+  }
+  if(zone==='Gurgaon'){
+    if(fromMins<=8*60) return 8*60;
+    if(fromMins<=10*60) return fromMins;
+    if(fromMins<=17*60) return 17*60;
+    if(fromMins<=21*60) return fromMins;
+    return 8*60+24*60;
+  }
+  return fromMins;
+}
 function getSettings(){
   return{
     loadingMin:parseInt(document.getElementById('s-loading')?.value||20),
@@ -414,6 +450,8 @@ function getSettings(){
     highwaySpeed:parseInt(document.getElementById('s-highway-speed')?.value||55),
     maxDist:parseInt(document.getElementById('s-max-dist')?.value||150),
     maxHours:parseInt(document.getElementById('s-max-hours')?.value||12),
+    maxOvertimeHours:parseInt(document.getElementById('s-max-overtime')?.value||14),
+    minUtil:parseInt(document.getElementById('s-min-util')?.value||70),
     outstationKm:parseInt(document.getElementById('s-outstation-km')?.value||80)
   };
 }
@@ -471,11 +509,17 @@ function buildRoutes(orders){
     }
   }
 
-  // --- NCR: cluster by ETA + geography ---
-  // Group by ETA window first, then by geo cluster
-  const etaGroups=groupByETA(ncr);
-  for(const [etaKey,group] of Object.entries(etaGroups)){
-    const clusters=greedyCluster(group,s);
+  // --- NCR: ZONE first, then geo/weight cluster ---
+  // Hard rule: Delhi / Gurgaon / Noida / Faridabad never mix on one route
+  // ETA is a soft constraint inside clustering, NOT a hard pre-split
+  const zoneGroups={};
+  for(const o of ncr){
+    const z=o.zone||'NCR';
+    if(!zoneGroups[z]) zoneGroups[z]=[];
+    zoneGroups[z].push(o);
+  }
+  for(const [zone,zoneOrders] of Object.entries(zoneGroups)){
+    const clusters=greedyClusterByZone(zoneOrders,s);
     for(const cluster of clusters){
       const route=buildRouteFromCluster(cluster,s,false);
       routes.push(route);
@@ -501,40 +545,72 @@ function groupByETA(orders){
   return groups;
 }
 
-function greedyCluster(orders,s){
+function greedyCluster(orders,s){ return greedyClusterByZone(orders,s); }
+
+function estimateRouteMins(cluster,speed,loadingMin,unloadingMin){
+  const ordered=nearestNeighbour(cluster);
+  let cum=loadingMin;
+  let pl=WH.lat,plo=WH.lon;
+  for(const o of ordered){
+    cum+=(haversine(pl,plo,o.lat,o.lon)*1.3/speed)*60+unloadingMin;
+    pl=o.lat;plo=o.lon;
+  }
+  cum+=(haversine(pl,plo,WH.lat,WH.lon)*1.3/speed)*60;
+  return cum;
+}
+
+function greedyClusterByZone(orders,s){
   const clusters=[];
   const used=new Set();
   const maxWeight=3500;
-  const sorted=[...orders].sort((a,b)=>{
-    const da=haversine(WH.lat,WH.lon,a.lat,a.lon);
-    const db=haversine(WH.lat,WH.lon,b.lat,b.lon);
-    return da-db;
-  });
+  const maxMins=s.maxOvertimeHours*60; // use overtime cap as hard ceiling
+  const targetMins=s.maxHours*60;      // try to fill to standard shift
+  const minUtilFrac=s.minUtil/100;
+  const speed=s.citySpeed;
+
+  // Sort by ETA ascending so earlier-deadline stops seed clusters
+  const sorted=[...orders].sort((a,b)=>etaToMinutes(a.eta)-etaToMinutes(b.eta));
+
   for(let i=0;i<sorted.length;i++){
     if(used.has(i)) continue;
     const cluster=[sorted[i]];
     used.add(i);
     let totalW=sorted[i].weight;
-    let totalDist=haversine(WH.lat,WH.lon,sorted[i].lat,sorted[i].lon)*2;
-    for(let j=i+1;j<sorted.length;j++){
-      if(used.has(j)) continue;
-      const o=sorted[j];
-      if(totalW+o.weight>maxWeight) continue;
-      // Check proximity to existing cluster (centroid)
-      const cLat=cluster.reduce((s,c)=>s+c.lat,0)/cluster.length;
-      const cLon=cluster.reduce((s,c)=>s+c.lon,0)/cluster.length;
-      const dist=haversine(cLat,cLon,o.lat,o.lon);
-      // Estimate additional route distance
-      const addDist=dist*1.4;
-      if(totalDist+addDist>s.maxDist) continue;
-      // ETA compatibility
-      const etaMins=etaToMinutes(o.eta);
-      const clusterETA=Math.max(...cluster.map(c=>etaToMinutes(c.eta)));
-      if(Math.abs(etaMins-clusterETA)>4*60) continue; // max 4hr ETA spread
-      cluster.push(o);
-      used.add(j);
-      totalW+=o.weight;
-      totalDist+=addDist;
+
+    // Keep absorbing stops while under weight cap and under overtime ceiling
+    // Priority: same zone first, then adjacent zones (for fuller shifts)
+    const seedZone=sorted[i].zone||getZone(sorted[i].lat,sorted[i].lon);
+
+    // Two passes: pass 1 = same zone, pass 2 = adjacent zones if underutilised
+    for(let pass=0;pass<2;pass++){
+      for(let j=0;j<sorted.length;j++){
+        if(used.has(j)) continue;
+        const o=sorted[j];
+        const oZone=o.zone||getZone(o.lat,o.lon);
+        // Pass 0: same zone only. Pass 1: allow adjacent zones.
+        if(pass===0&&oZone!==seedZone) continue;
+        if(pass===1&&oZone===seedZone) continue; // already tried
+        if(pass===1){
+          // Only allow cross-zone if route is underutilised
+          const curMins=estimateRouteMins(cluster,speed,s.loadingMin,s.unloadingMin);
+          const util=curMins/targetMins;
+          if(util>=minUtilFrac) break; // utilised enough, stop cross-zone fill
+        }
+        // Hard: weight cap
+        if(totalW+o.weight>maxWeight) continue;
+        // Hard: time cap (overtime ceiling)
+        const trial=estimateRouteMins([...cluster,o],speed,s.loadingMin,s.unloadingMin);
+        if(trial>maxMins) continue;
+        // Soft: ETA spread ≤ 8hrs (driver delivers earlier stops first)
+        const etaMins=etaToMinutes(o.eta);
+        const clusterMinETA=Math.min(...cluster.map(c=>etaToMinutes(c.eta)));
+        const clusterMaxETA=Math.max(...cluster.map(c=>etaToMinutes(c.eta)));
+        const newSpread=Math.max(clusterMaxETA,etaMins)-Math.min(clusterMinETA,etaMins);
+        if(newSpread>8*60) continue;
+        cluster.push(o);
+        used.add(j);
+        totalW+=o.weight;
+      }
     }
     clusters.push(cluster);
   }
@@ -580,43 +656,98 @@ function buildRouteFromCluster(cluster,s,isOutstation){
   let totalDistKm=0;
   let prevLat=WH.lat,prevLon=WH.lon;
   for(const o of ordered){
-    totalDistKm+=haversine(prevLat,prevLon,o.lat,o.lon);
+    totalDistKm+=haversine(prevLat,prevLon,o.lat,o.lon)*1.3;
     prevLat=o.lat;prevLon=o.lon;
   }
-  totalDistKm+=haversine(prevLat,prevLon,WH.lat,WH.lon);
+  totalDistKm+=haversine(prevLat,prevLon,WH.lat,WH.lon)*1.3;
 
   const travelMins=(totalDistKm/speed)*60;
   const unloadingMins=ordered.length*s.unloadingMin;
   const totalRouteMins=s.loadingMin+travelMins+unloadingMins;
 
-  // Earliest ETA determines dispatch
+  // ── Dispatch time calculation ──
+  // Strategy: try morning window first, then evening window, pick whichever
+  // gets all restricted stops delivered on time without no-entry conflicts.
   const earliestETA=Math.min(...ordered.map(o=>etaToMinutes(o.eta)));
-  // Time to reach first stop from warehouse
   const firstStopDist=haversine(WH.lat,WH.lon,ordered[0].lat,ordered[0].lon);
   const timeToFirstStop=(firstStopDist/speed)*60+s.loadingMin;
-  let dispatchMins=earliestETA-timeToFirstStop;
-  // Don't dispatch before 4am typically
-  if(dispatchMins<4*60) dispatchMins=4*60;
 
-  // Build stop arrival times + no-entry check
-  let cumMins=dispatchMins+s.loadingMin;
-  let prevLat2=WH.lat,prevLon2=WH.lon;
-  let hasConflict=false;
-  const stopsWithTime=ordered.map((o,i)=>{
-    const dist=haversine(prevLat2,prevLon2,o.lat,o.lon);
-    cumMins+=(dist/speed)*60;
-    const arrivalMins=Math.round(cumMins);
-    const zone=o.zone||getZone(o.lat,o.lon);
-    const conflict=(zone==='Delhi'||zone==='Gurgaon')&&isNoEntry(zone,arrivalMins);
-    if(conflict) hasConflict=true;
-    const etaMins=etaToMinutes(o.eta);
-    const late=arrivalMins>etaMins&&etaMins<23*60;
-    cumMins+=s.unloadingMin;
-    prevLat2=o.lat;prevLon2=o.lon;
-    return{...o,arrivalMins,arrivalTime:minutesToTime(arrivalMins),conflict,late,stopNum:i+1,dist:Math.round(dist*10)/10};
+  // Check if route has Delhi or Gurgaon stops
+  const hasRestricted=ordered.some(o=>{
+    const z=getZone(o.lat,o.lon);
+    return z==='Delhi'||z==='Gurgaon';
   });
 
-  const returnMins=cumMins+haversine(prevLat2,prevLon2,WH.lat,WH.lon)/speed*60;
+  // Candidate dispatch times to try
+  let candidates=[];
+  if(hasRestricted){
+    // Morning window: target first restricted stop to arrive at 7am (Delhi) or 8am (Gurgaon)
+    const firstRestricted=ordered.find(o=>{const z=getZone(o.lat,o.lon);return z==='Delhi'||z==='Gurgaon';});
+    if(firstRestricted){
+      const zone=getZone(firstRestricted.lat,firstRestricted.lon);
+      const windowStart=zone==='Gurgaon'?8*60:7*60;
+      // Time from WH to that stop (approx via cumulative travel)
+      let travelToStop=s.loadingMin;
+      let pl=WH.lat,plo=WH.lon;
+      for(const o of ordered){
+        travelToStop+=(haversine(pl,plo,o.lat,o.lon)/speed)*60;
+        if(o===firstRestricted) break;
+        travelToStop+=s.unloadingMin;
+        pl=o.lat;plo=o.lon;
+      }
+      candidates.push(windowStart-travelToStop);
+      // Evening window: target 4pm / 5pm
+      const eveningStart=zone==='Gurgaon'?17*60:16*60;
+      candidates.push(eveningStart-travelToStop);
+    }
+  }
+  // Always add ETA-driven candidate
+  candidates.push(earliestETA-timeToFirstStop);
+  // Min 4am dispatch
+  candidates=candidates.map(c=>Math.max(c,4*60));
+
+  // Simulate each candidate, pick the one with fewest conflicts
+  function simulateDispatch(dispMins){
+    let cum=dispMins+s.loadingMin;
+    let pl=WH.lat,plo=WH.lon;
+    let conflicts=0;
+    const stops=ordered.map((o,i)=>{
+      // Travel from previous point to this stop
+      const dist=haversine(pl,plo,o.lat,o.lon);
+      cum+=(dist/speed)*60*1.3; // 1.3x road factor on travel time
+      const zone=getZone(o.lat,o.lon);
+      // If restricted zone and no-entry, wait until next allowed window
+      if((zone==='Delhi'||zone==='Gurgaon')&&isNoEntry(zone,Math.round(cum))){
+        const nextW=nextAllowedWindow(zone,Math.round(cum));
+        cum=nextW;
+        conflicts++;
+      }
+      const arr=Math.round(cum);
+      const etaMins=etaToMinutes(o.eta);
+      const late=arr>etaMins&&etaMins<23*60;
+      const conflict=(zone==='Delhi'||zone==='Gurgaon')&&isNoEntry(zone,arr);
+      // Depart = arrive + unload time. Next stop travel starts from departure.
+      const depart=arr+s.unloadingMin;
+      cum=depart; // departure time becomes new base for next leg
+      pl=o.lat;plo=o.lon;
+      return{...o,arrivalMins:arr,arrivalTime:minutesToTime(arr),departTime:minutesToTime(depart),conflict,late,stopNum:i+1,dist:Math.round(dist*1.3*10)/10,zone};
+    });
+    return{stops,conflicts,dispMins};
+  }
+
+  let best=null;
+  for(const c of candidates){
+    const sim=simulateDispatch(c);
+    if(!best||sim.conflicts<best.conflicts) best=sim;
+  }
+
+  let dispatchMins=best.dispMins;
+  const stopsWithTime=best.stops;
+  let hasConflict=stopsWithTime.some(s=>s.conflict);
+
+  const lastStop=stopsWithTime[stopsWithTime.length-1];
+  const lastArrival=lastStop.arrivalMins+s.unloadingMin;
+  const returnMins=Math.round(lastArrival+haversine(lastStop.lat,lastStop.lon,WH.lat,WH.lon)/speed*60);
   const zones=[...new Set(stopsWithTime.map(s=>s.zone||getZone(s.lat,s.lon)))];
 
   return{
@@ -670,18 +801,28 @@ let parsedOrders=[];
 
 function parseCSV(file,name){
   const reader=new FileReader();
+  reader.onerror=()=>alert('Could not read file.');
   reader.onload=function(e){
-    const lines=e.target.result.split('\n').filter(l=>l.trim());
-    const headers=lines[0].toLowerCase().split(',').map(h=>h.trim());
+    const raw=e.target.result;
+    // Normalise line endings, strip BOM
+    const cleaned=raw.replace(/\uFEFF/g,'').replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+    const lines=cleaned.split('\n').filter(l=>l.trim());
+    if(lines.length<2){alert('File appears empty or has only one row.');return;}
+    // Auto-detect delimiter: comma or semicolon
+    const delim=lines[0].includes(';')?';':',';
+    const headers=lines[0].toLowerCase().split(delim).map(h=>h.trim().replace(/^["\']+|["\']+$/g,''));
     const nameCol=headers.findIndex(h=>h.includes('outlet')||h.includes('name'));
     const weightCol=headers.findIndex(h=>h.includes('weight'));
-    if(nameCol<0||weightCol<0){alert('CSV must have "outlet name" and "weight" columns');return;}
+    if(nameCol<0||weightCol<0){
+      alert('Could not find required columns.\n\nFound headers: '+headers.join(', ')+'\n\nExpected: "outlet name" and "weight"');
+      return;
+    }
     parsedOrders=[];
     const tbody=document.getElementById('preview-body');
     tbody.innerHTML='';
     let matched=0,unmatched=0;
     for(let i=1;i<lines.length;i++){
-      const cols=lines[i].split(',').map(c=>c.trim().replace(/^"|"$/g,''));
+      const cols=lines[i].split(delim).map(c=>c.trim().replace(/^["']+|["']+$/g,''));
       if(!cols[nameCol]||!cols[weightCol]) continue;
       const outletName=cols[nameCol];
       const weight=parseFloat(cols[weightCol]);
@@ -716,11 +857,17 @@ function parseCSV(file,name){
 
 function generateRoutes(){
   if(parsedOrders.length===0){alert('No matched orders to route');return;}
-  const s=getSettings();
   generatedRoutes=buildRoutes(parsedOrders);
   showPage('routes');
   renderRoutesPage();
   populateOpsTable();
+}
+function regenerateRoutes(){
+  if(parsedOrders.length===0){alert('Upload orders first');return;}
+  generatedRoutes=buildRoutes(parsedOrders);
+  renderRoutesPage();
+  populateOpsTable();
+  showToast('Routes regenerated with new settings!');
 }
 
 // ═══════════════════════════════════════════════
@@ -779,6 +926,8 @@ function renderRouteCards(){
           <div class="route-meta-item"><div class="route-meta-label">Distance</div><div class="route-meta-value">${r.totalDistKm} km</div></div>
           <div class="route-meta-item"><div class="route-meta-label">Duration</div><div class="route-meta-value">${hours}h ${mins}m</div></div>
           <div class="route-meta-item"><div class="route-meta-label">Return</div><div class="route-meta-value">${r.returnTime}</div></div>
+          <div class="route-meta-item"><div class="route-meta-label">Shift utilisation</div><div class="route-meta-value" style="color:${r.totalRouteMins/720>=0.8?'var(--green)':r.totalRouteMins/720>=0.6?'var(--amber)':'var(--red)'}">
+            ${Math.round(r.totalRouteMins/720*100)}%</div></div>
         </div>
         <div class="route-stops-preview">
           ${r.zones.map(z=>`<span class="badge badge-ncr" style="margin-right:3px">${z}</span>`).join('')}
@@ -807,8 +956,22 @@ function openRouteModal(route,idx){
   const ul=document.getElementById('modal-stops');
   ul.innerHTML='';
   let cumW=route.totalWeight;
-  for(const s of route.stops){
+  // Add warehouse as origin for distance calc
+  const prevPoints=[{lat:WH.lat,lon:WH.lon,name:'Warehouse'},...route.stops];
+  for(let si=0;si<route.stops.length;si++){
+    const s=route.stops[si];
     cumW-=s.weight;
+    const prev=prevPoints[si];
+    const distFromPrev=Math.round(haversine(prev.lat,prev.lon,s.lat,s.lon)*10)/10;
+    const distFromWH=Math.round(haversine(WH.lat,WH.lon,s.lat,s.lon)*10)/10;
+    const fromLabel=si===0?`${distFromPrev} km from warehouse`:`${distFromPrev} km from stop ${si}`;
+    // Connector arrow between stops
+    if(si>0){
+      const conn=document.createElement('div');
+      conn.style.cssText='display:flex;align-items:center;gap:8px;padding:2px 0 2px 11px;color:var(--text-muted)';
+      conn.innerHTML=`<div style="width:1px;height:20px;background:var(--gray-border);margin-left:10px;flex-shrink:0"></div><span style="font-size:11px;color:var(--text-muted)">↓ ${distFromPrev} km</span>`;
+      ul.appendChild(conn);
+    }
     const li=document.createElement('li');
     li.className='stop-item';
     li.innerHTML=`
@@ -817,9 +980,11 @@ function openRouteModal(route,idx){
         <div class="stop-name">${s.name}</div>
         <div class="stop-meta">
           <span>ETA: ${s.eta==='As per customer'?'Flexible':s.eta.replace(':00 ',' ')}</span>
-          <span>Arrive: ${s.arrivalTime}</span>
+          <span>🟢 Arrive: ${s.arrivalTime}</span>
+          <span>🔴 Depart: ${s.departTime||'—'}</span>
           <span>${s.weight} kg</span>
-          <span>Remaining load: ${cumW} kg</span>
+          <span style="color:var(--text-muted)">📍 ${fromLabel} (road est.) · ${distFromWH} km from WH</span>
+          <span>Load left: ${cumW} kg</span>
           ${s.conflict?'<span style="color:var(--red);font-weight:600">⚠ No-entry conflict</span>':''}
           ${s.late&&!s.conflict?'<span style="color:var(--amber);font-weight:600">⚠ Late arrival</span>':''}
         </div>
@@ -893,16 +1058,19 @@ function populateOpsTable(){
   document.getElementById('ops-table-wrap').style.display='block';
   generatedRoutes.forEach((r,i)=>{
     const tr=document.createElement('tr');
+    const vehicleOptions=['EV450','ACE','Bolero','TATA 407','14FT'].map(v=>`<option${v===r.vehicle?' selected':''}>${v}</option>`).join('');
     tr.innerHTML=`
       <td style="font-weight:500">Route ${i+1}</td>
       <td><span class="vehicle-badge ${vehicleBadgeClass(r.vehicle)}">${r.vehicle}</span></td>
+      <td><select id="ops-avtype-${i}" style="width:90px;font-size:12px">${vehicleOptions}<option value="Other">Other</option></select></td>
       <td><input type="text" placeholder="e.g. DL01AB1234" id="ops-vno-${i}"/></td>
       <td><input type="text" placeholder="Driver name" id="ops-dname-${i}"/></td>
       <td><input type="text" placeholder="+91 XXXXXXXX" id="ops-dnum-${i}"/></td>
       <td><input type="text" placeholder="Partner name" id="ops-tp-${i}"/></td>
       <td style="font-weight:500;color:var(--green)">${r.dispatchTime}</td>
       <td><input type="time" id="ops-adispatch-${i}"/></td>
-      <td><input type="time" id="ops-return-${i}"/></td>`;
+      <td><input type="time" id="ops-return-${i}"/></td>
+      <td><input type="text" placeholder="2nd vehicle no." id="ops-split-${i}" style="width:110px"/></td>`;
     tbody.appendChild(tr);
   });
 }
@@ -923,7 +1091,6 @@ function exportExcel(){
         s.conflict?'YES':''
       ]);
     });
-    rows.push([]);
   });
   const wb=XLSX.utils.book_new();
   const ws=XLSX.utils.aoa_to_sheet(rows);
@@ -945,7 +1112,9 @@ function exportOpsExcel(){
       document.getElementById(`ops-tp-${i}`)?.value||'',
       r.dispatchTime,
       document.getElementById(`ops-adispatch-${i}`)?.value||'',
-      document.getElementById(`ops-return-${i}`)?.value||''
+      document.getElementById(`ops-return-${i}`)?.value||'',
+      document.getElementById(`ops-avtype-${i}`)?.value||r.vehicle,
+      document.getElementById(`ops-split-${i}`)?.value||''
     ]);
   });
   const wb=XLSX.utils.book_new();
